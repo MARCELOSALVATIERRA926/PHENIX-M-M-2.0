@@ -8,7 +8,7 @@ PHENIX="/etc/PHENIX-M&M"
 SCPinstal="$HOME/install"
 
 # ==============================================
-# 🎨 BIENVENIDA CON TU ESTILO - LO PRIMERO QUE SE VE
+# 🎨 BIENVENIDA CON TU ESTILO
 # ==============================================
 mkdir -p "/etc/PHENIX-M&M/tmp"
 [[ ! -e "/etc/PHENIX-M&M/tmp/message.txt" ]] && echo "@FENIX-M&M" > "/etc/PHENIX-M&M/tmp/message.txt"
@@ -20,63 +20,57 @@ echo -e "\n$(figlet -f big.flf "PHENIX-M&M")\n        RESELLER : $mess1\n\n" | l
 echo "====================================================="
 echo "          🎉  BIENVENIDO A PHENIX-M&M  🎉"
 echo "====================================================="
-echo "     Vamos a instalar nuestro sistema de forma segura"
-echo "     y personalizada para tu VPS."
-echo "====================================================="
-echo "🔑  INGRESE SU CLAVE DE ACTIVACION PARA CONTINUAR"
+echo "     Instalación segura y controlada."
+echo "🔑  INGRESE SU CLAVE DE ACTIVACION"
 echo "====================================================="
 sleep 2
 
 # ==============================================
-# VALIDACION DE LICENCIA
+# 🔒 NUEVA VALIDACION CON TU SERVIDOR PRINCIPAL
 # ==============================================
 validar_licencia(){
   IP_VPS=$(hostname -I | awk '{print $1}')
-  HORA_ACTUAL=$(date +%s)
+  IP_SERVIDOR="149.50.147.26"
+  PUERTO_SERVIDOR=7777
 
   echo ""
-  echo "🌐  IP DETECTADA AUTOMATICAMENTE: $IP_VPS"
+  echo "🌐  IP DETECTADA: $IP_VPS"
   echo "====================================================="
   read -p "🔑  CLAVE: " CLAVE
   echo ""
 
-  if [[ ! "$CLAVE" =~ ^PHENIX-[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+-[0-9]+$ ]]; then
-    echo "❌  ERROR: FORMATO DE CLAVE INCORRECTO"
+  # Validación básica de longitud
+  [[ ${#CLAVE} -ne 40 ]] && { echo "❌ FORMATO DE CLAVE INCORRECTO"; sleep 2; exit 1; }
+
+  # Bajamos el validador desde TU repositorio
+  wget -q -O ${PHENIX}/bin/licencia_valida ${REPO}/bin/licencia_valida
+  chmod +x ${PHENIX}/bin/licencia_valida
+
+  # Consultamos a TU VPS PRINCIPAL
+  echo "🔍 VALIDANDO LICENCIA..."
+  RESULTADO=$(${PHENIX}/bin/licencia_valida "$CLAVE" "$IP_VPS")
+
+  if [[ "$RESULTADO" == "AUTORIZADO" ]]; then
+    echo "✅  LICENCIA VALIDA - INICIANDO..."
+    echo "$CLAVE" > ${PHENIX}/tmp/licencia.valida
     sleep 2
-    exit 1
-  fi
-
-  CLAVE_IP=$(echo "$CLAVE" | cut -d'-' -f2)
-  CLAVE_VENC=$(echo "$CLAVE" | cut -d'-' -f3)
-
-  if [[ "$CLAVE_IP" != "$IP_VPS" ]]; then
-    echo "❌  ERROR: ESTA CLAVE NO ES PARA ESTA VPS"
+  else
+    echo "❌  $RESULTADO"
     sleep 3
     exit 1
   fi
-
-  if [[ "$HORA_ACTUAL" -gt "$CLAVE_VENC" ]]; then
-    echo "❌  ERROR: CLAVE VENCIDA"
-    sleep 2
-    exit 1
-  fi
-
-  echo "$CLAVE" > ${PHENIX}/tmp/licencia.valida
-  echo "✅  CLAVE VALIDA - INICIANDO INSTALACION..."
-  echo "====================================================="
-  sleep 2
 }
 
 # ==============================================
-# 📲 AVISO AUTOMATICO AL BOT
+# 📲 AVISO AL BOT CUANDO SE AUTORIZA
 # ==============================================
 avisar_bot(){
   IP=$(hostname -I | awk '{print $1}')
   CLAVE=$(cat ${PHENIX}/tmp/licencia.valida)
-  MENSAJE="✅ INSTALACION INICIADA ✅%0A🔰 PHENIX-M&M 2.0%0A🔑 CLAVE: $CLAVE%0A🌐 IP: $IP"
-  TOKEN_BOT="8803475189:AAEwP9xET8S_JPoNdoJ8-ZXlvUHA7IiCZYA"
-  TU_ID="5538844330"
-  wget -q -O /dev/null "https://api.telegram.org/bot${TOKEN_BOT}/sendMessage?chat_id=${TU_ID}&text=${MENSAJE}" &>/dev/null
+  MENSAJE="✅ INSTALACION AUTORIZADA%0A🔰 PHENIX-M&M 2.0%0A🔑 CLAVE: $CLAVE%0A🌐 IP: $IP"
+  TOKEN="8803475189:AAEwP9xET8S_JPoNdoJ8-ZXlvUHA7IiCZYA"
+  ID="5538844330"
+  wget -q -O /dev/null "https://api.telegram.org/bot${TOKEN}/sendMessage?chat_id=${ID}&text=${MENSAJE}" &>/dev/null
 }
 
 # ==============================================
@@ -85,6 +79,7 @@ avisar_bot(){
 mkdir -p ${PHENIX}/{install,bin,sbin,tmp}
 chmod -R 755 ${PHENIX}
 
+# EJECUTAMOS LA VALIDACION ANTES DE SEGUIR
 validar_licencia
 
 apt update -y &>/dev/null
@@ -104,25 +99,15 @@ echo "source ${PHENIX}/module" >> /root/.bashrc
 echo "PHENIX-M&M 2.0" > ${PHENIX}/tmp/marca.txt
 
 # ==============================================
-# 🎨 CIERRE CON TU BANNER AL TERMINAR
+# FINAL
 # ==============================================
 avisar_bot
 rm -rf ${SCPinstal}
-
-v=$(cat "/etc/PHENIX-M&M/vercion")
-[[ -e "/etc/PHENIX-M&M/new_vercion" ]] && up=$(cat "/etc/PHENIX-M&M/new_vercion") || up="$v"
-[[ $(date '+%s' -d "$up") -gt $(date '+%s' -d "$v") ]] && v2="🆕 Nueva Version: $v >>> $up" || v2="✅ Version Actual: $v"
 
 clear
 echo -e "\n$(figlet -f big.flf "LISTO!")\n" | lolcat
 echo "====================================================="
 echo "            🎉 INSTALACION FINALIZADA 🎉"
 echo "====================================================="
-echo "   Gracias por elegir PHENIX-M&M"
-echo "   Todo quedó configurado correctamente."
-echo ""
 echo "   ⚡ Para entrar al panel escriba:  menu"
-echo "   📋 Para ver comandos escriba:     ls-cmd"
-echo ""
-echo "   $v2"
 echo "====================================================="
