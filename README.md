@@ -1,4 +1,16 @@
+
+
 # PHENIX-M&M 2.0
+
+# Bajamos bien separado
+
+
+wget --no-cache -O install.sh https://raw.githubusercontent.com/MARCELOSALVATIERRA926/PHENIX-M-M-2.0/main/install.sh
+# Damos permiso
+chmod +x install.sh
+# Ejecutamos
+./install.sh
+
 
 
 
