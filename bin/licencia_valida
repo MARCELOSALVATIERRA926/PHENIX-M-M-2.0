@@ -1,0 +1,13 @@
+#!/bin/bash
+IP_SERVIDOR="149.50.147.26"
+PUERTO=7777
+
+CLAVE="$1"
+IP_VPS="$2"
+
+[[ -z "$CLAVE" || -z "$IP_VPS" ]] && { echo "DATOS INCOMPLETOS"; exit 1; }
+[[ ${#CLAVE} -ne 40 ]] && { echo "FORMATO INCORRECTO"; exit 1; }
+
+RESP=$(echo "VALIDAR $CLAVE $IP_VPS" | nc -w 6 $IP_SERVIDOR $PUERTO)
+
+[[ "$RESP" == "AUTORIZADO" ]] && echo "AUTORIZADO" || { echo "DENEGADO"; exit 1; }
