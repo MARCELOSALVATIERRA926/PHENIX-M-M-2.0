@@ -2,13 +2,12 @@
 # ==============================================
 #            PHENIX-M&M 2.0 - INSTALADOR
 # ==============================================
-
 REPO="https://raw.githubusercontent.com/MARCELOSALVATIERRA926/PHENIX-M-M-2.0/main"
 PHENIX="/etc/PHENIX-M&M"
 SCPinstal="$HOME/install"
 
 # ==============================================
-# 🎨 BIENVENIDA CON TU ESTILO
+# 🎨 BIENVENIDA
 # ==============================================
 mkdir -p "/etc/PHENIX-M&M/tmp"
 [[ ! -e "/etc/PHENIX-M&M/tmp/message.txt" ]] && echo "@FENIX-M&M" > "/etc/PHENIX-M&M/tmp/message.txt"
@@ -20,18 +19,15 @@ echo -e "\n$(figlet -f big.flf "PHENIX-M&M")\n        RESELLER : $mess1\n\n" | l
 echo "====================================================="
 echo "          🎉  BIENVENIDO A PHENIX-M&M  🎉"
 echo "====================================================="
-echo "     Instalación segura y controlada."
 echo "🔑  INGRESE SU CLAVE DE ACTIVACION"
 echo "====================================================="
 sleep 2
 
 # ==============================================
-# 🔒 NUEVA VALIDACION CON TU SERVIDOR PRINCIPAL
+# 🔒 VALIDACION CORRECTA
 # ==============================================
 validar_licencia(){
   IP_VPS=$(hostname -I | awk '{print $1}')
-  IP_SERVIDOR="149.50.147.26"
-  PUERTO_SERVIDOR=7777
 
   echo ""
   echo "🌐  IP DETECTADA: $IP_VPS"
@@ -39,19 +35,18 @@ validar_licencia(){
   read -p "🔑  CLAVE: " CLAVE
   echo ""
 
-  # Validación básica de longitud
-  [[ ${#CLAVE} -ne 40 ]] && { echo "❌ FORMATO DE CLAVE INCORRECTO"; sleep 2; exit 1; }
+  [[ ${#CLAVE} -ne 40 ]] && { echo "❌ FORMATO INCORRECTO"; sleep 2; exit 1; }
 
-  # Bajamos el validador desde TU repositorio
-  wget -q -O ${PHENIX}/bin/licencia_valida ${REPO}/bin/licencia_valida
-  chmod +x ${PHENIX}/bin/licencia_valida
+  wget -q -O /tmp/licencia_valida ${REPO}/bin/licencia_valida
+  chmod +x /tmp/licencia_valida
 
-  # Consultamos a TU VPS PRINCIPAL
   echo "🔍 VALIDANDO LICENCIA..."
-  RESULTADO=$(${PHENIX}/bin/licencia_valida "$CLAVE" "$IP_VPS")
+  RESULTADO=$(/tmp/licencia_valida "$CLAVE" "$IP_VPS")
+  rm -f /tmp/licencia_valida
 
   if [[ "$RESULTADO" == "AUTORIZADO" ]]; then
     echo "✅  LICENCIA VALIDA - INICIANDO..."
+    mkdir -p ${PHENIX}/tmp
     echo "$CLAVE" > ${PHENIX}/tmp/licencia.valida
     sleep 2
   else
@@ -62,7 +57,7 @@ validar_licencia(){
 }
 
 # ==============================================
-# 📲 AVISO AL BOT CUANDO SE AUTORIZA
+# 📲 AVISO AL BOT
 # ==============================================
 avisar_bot(){
   IP=$(hostname -I | awk '{print $1}')
@@ -74,19 +69,17 @@ avisar_bot(){
 }
 
 # ==============================================
-# PREPARACION E INSTALACION
+# INSTALACION
 # ==============================================
 mkdir -p ${PHENIX}/{install,bin,sbin,tmp}
 chmod -R 755 ${PHENIX}
-
-# EJECUTAMOS LA VALIDACION ANTES DE SEGUIR
 validar_licencia
 
 apt update -y &>/dev/null
 apt install -y sudo bsdmainutils zip unzip ufw curl python3 python3-pip openssl screen cron iptables lsof nano gawk grep bc jq socat net-tools dropbear figlet lolcat &>/dev/null
 
 mkdir -p ${SCPinstal}
-archivos="menu userSSH dropBear cmd mine_port"
+archivos="menu userSSH dropBear cmd mine_port module"
 for arq in $archivos; do
   wget -q -O ${SCPinstal}/${arq} ${REPO}/${arq}
   mv -f ${SCPinstal}/${arq} ${PHENIX}/
@@ -111,3 +104,4 @@ echo "            🎉 INSTALACION FINALIZADA 🎉"
 echo "====================================================="
 echo "   ⚡ Para entrar al panel escriba:  menu"
 echo "====================================================="
+
