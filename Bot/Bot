@@ -2,6 +2,7 @@
 # ==============================================
 # 🔰 PHENIX - M & M - BOT GENERADOR DE CLAVES
 # CLAVES DE 20 CARACTERES | VENCIMIENTO: 4 HORAS
+# FORMATO IGUAL A ADMRufu2.0 - SEPARADO PARA COPIAR SOLO
 # ==============================================
 
 TOKEN="8803475189:AAEwP9xET8S_JPoNdoJ8-ZXlvUHA7IiCZYA"
@@ -26,15 +27,25 @@ GENERAR_CLAVE(){
   VENCIMIENTO=$(date +%s -d '+4 hours')
   echo "${TU_ID}|${CLAVE}|${VENCIMIENTO}" >> "$HOJA_LIBRES"
 
+  # MENSAJE CON FORMATO IGUAL AL EJEMPLO, SEPARADO POR LÍNEAS
   ENVIAR "
-━━━━━━━━━━━━━━━━━━━━
-🆔 ID: ${TU_ID}
-━━━━━━━━━━━━━━━━━━━━
-🔑 CLAVE:
+━━━━━━━━━━━━━━━
+🔰 KEY PHENIX-M&M  🔰
+━━━━━━━━━━━━━━━
+PHENIX 3815246197
+━━━━━━━━━━━━━━━
+🆔: ${TU_ID}
+━━━━━━━━━━━━━━━
 ${CLAVE}
-━━━━━━━━━━━━━━━━━━━━
-⏳ VENCIMIENTO: 4 HORAS
-━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━
+rm -rf /root/install.sh; wget --no-cache -O /root/install.sh https://raw.githubusercontent.com/MARCELOSALVATIERRA926/PHENIX-M-M-2.0/main/install.sh; chmod +x /root/install.sh; /root/install.sh
+━━━━━━━━━━━━━━━
+SO: Verificados
+- Ubuntu [22,24].04 x86_64
+- Debian 12 x86_64
+━━━━━━━━━━━━━━━
+Esta key expira en 4hs
+━━━━━━━━━━━━━━━
 "
 }
 
