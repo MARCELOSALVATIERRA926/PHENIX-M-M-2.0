@@ -1,0 +1,98 @@
+cd /opt/PhenixBot && rm -f bot.sh && cat > bot.sh << 'EOF'
+
+
+#!/bin/bash
+# ==============================================
+# 🔰 BOT PHENIX - M & M - VERSION FINAL
+# ==============================================
+
+TOKEN="8803475189:AAEwP9xET8S_JPoNdoJ8-ZXlvUHA7IiCZYA"
+TU_ID="5538844330"
+ARCHIVO_DATOS="/opt/PhenixBot/datos.txt"
+ULTIMA_ID=0
+
+# Inicializamos
+[[ ! -f $ARCHIVO_DATOS ]] && echo "CLAVE|ESTADO|IP|USUARIO" > "$ARCHIVO_DATOS"
+
+ENVIAR() {
+  local TEXTO=$(echo "$1" | sed 's/ /%20/g' | sed 's/\n/%0A/g')
+  wget -q -O /dev/null "https://api.telegram.org/bot${TOKEN}/sendMessage?chat_id=${TU_ID}&text=${TEXTO}"
+}
+
+MENSAJE_INICIO() {
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        🔰  PHENIX - M & M  🔰
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  🔑 /generar  → Crear nueva clave
+  📋 /listar   → Ver claves usadas
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+GENERAR_CLAVE() {
+  CODIGO=$(head -c 12 /dev/urandom | tr -dc 'A-Z0-9')
+  CLAVE="PHENIX-${CODIGO}"
+  VENC=$(date +%s -d '+4 hours')
+  echo "$CLAVE|LIBRE|SIN_ASIGNAR|SIN_NOMBRE|$VENC" >> "$ARCHIVO_DATOS"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ CLAVE GENERADA ✅
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔑 CLAVE: $CLAVE
+⏳ VALIDEZ: 4 HORAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COMANDO:
+wget --no-cache -O install.sh https://raw.githubusercontent.com/MARCELOSALVATIERRA926/PHENIX-M-M-2.0/main/install.sh && chmod +x install.sh && ./install.sh
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+# ==============================================
+# 🔐 VALIDACION PARA EL INSTALADOR
+# ==============================================
+VALIDAR_DESDE_VPS(){
+  local CLAVE="$1"
+  local IP="$2"
+  local AHORA=$(date +%s)
+  local FILA=$(grep "^${CLAVE}|" "$ARCHIVO_DATOS")
+  [[ -z "$FILA" ]] && { echo "DENEGADO"; exit; }
+  local ESTADO=$(echo "$FILA" | cut -d'|' -f2)
+  local VENC=$(echo "$FILA" | cut -d'|' -f5)
+  [[ "$ESTADO" != "LIBRE" ]] && { echo "DENEGADO"; exit; }
+  [[ $AHORA -gt $VENC ]] && { echo "DENEGADO"; exit; }
+  sed -i "s/^${CLAVE}|.*$/${CLAVE}|USADA|${IP}|AUTORIZADA|$VENC/" "$ARCHIVO_DATOS"
+  ENVIAR "✅ INSTALACION AUTORIZADA%0A🔑 $CLAVE%0A🌐 IP: $IP"
+  echo "AUTORIZADO"
+  exit 0
+}
+
+# ==============================================
+# 🚀 ARRANQUE
+# ==============================================
+if [[ "$1" == "VALIDAR" ]]; then
+  VALIDAR_DESDE_VPS "$2" "$3"
+fi
+
+clear
+echo "🔰 INICIANDO BOT PHENIX-M&M..."
+ENVIAR "✅ BOT ACTIVO Y LISTO PARA USAR"
+
+while true; do
+  RESP=$(wget -q -T 10 -O - "https://api.telegram.org/bot${TOKEN}/getUpdates?offset=$((ULTIMA_ID+1))&timeout=30")
+  if echo "$RESP" | grep -q '"update_id"'; then
+    ID_MSG=$(echo "$RESP" | grep -o '"update_id":[0-9]*' | head -n1 | cut -d':' -f2)
+    TEXTO=$(echo "$RESP" | grep -o '"text":"[^"]*"' | head -n1 | cut -d'"' -f4)
+    ULTIMA_ID=$ID_MSG
+    case "$TEXTO" in
+      "/start") ENVIAR "$(MENSAJE_INICIO)" ;;
+      "/generar") ENVIAR "$(GENERAR_CLAVE)" ;;
+      "/listar") 
+        LISTA=$(cat "$ARCHIVO_DATOS")
+        ENVIAR "📋 REGISTRO COMPLETO:%0A$LISTA"
+      ;;
+      *) ENVIAR "❌ COMANDOS: /start | /generar | /listar" ;;
+    esac
+  fi
+  sleep 2
+done
+EOF
+chmod +x bot.sh && bash bot.sh
+
+
