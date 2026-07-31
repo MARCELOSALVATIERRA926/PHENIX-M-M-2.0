@@ -4,8 +4,17 @@ PUERTO=7777
 CLAVE="$1"
 IP_VPS="$2"
 
+# Validaciones rápidas antes de mandar
 [[ -z "$CLAVE" || -z "$IP_VPS" ]] && { echo "DATOS INCOMPLETOS"; exit 1; }
 [[ ${#CLAVE} -ne 40 ]] && { echo "FORMATO INCORRECTO"; exit 1; }
 
-RESP=$(echo "VALIDAR $CLAVE $IP_VPS" | nc -w 8 $IP_SERVIDOR $PUERTO | tr -cd 'A-Z')
-[[ "$RESP" == "AUTORIZADO" ]] && echo "AUTORIZADO" || echo "DENEGADO"
+# Mandamos la petición y esperamos la respuesta completa
+RESPUESTA=$(echo "VALIDAR $CLAVE $IP_VPS" | nc -w 10 $IP_SERVIDOR $PUERTO | tr -cd 'A-Z')
+
+# Solo si es exactamente AUTORIZADO seguimos
+if [[ "$RESPUESTA" == "AUTORIZADO" ]]; then
+  echo "AUTORIZADO"
+else
+  echo "DENEGADO"
+fi
+
