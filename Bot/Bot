@@ -1,64 +1,92 @@
+cd /opt/PhenixBot && rm -f bot.sh && cat > bot.sh << 'EOF'
 #!/bin/bash
-# ==============================================
-# 🔰 PHENIX - M & M - BOT GENERADOR DE CLAVES
-# CLAVES DE 20 CARACTERES | VENCIMIENTO: 4 HORAS
-# FORMATO IGUAL A ADMRufu2.0 - SEPARADO PARA COPIAR SOLO
-# ==============================================
-
 TOKEN="8803475189:AAEwP9xET8S_JPoNdoJ8-ZXlvUHA7IiCZYA"
 TU_ID="5538844330"
-HOJA_LIBRES="/opt/PhenixBot/claves_libres.txt"
-HOJA_USADAS="/opt/PhenixBot/claves_usadas.txt"
+ARCHIVO_DATOS="/opt/PhenixBot/datos.txt"
 ULTIMA_ID=0
 
-# Creamos las hojas si no existen
-[[ ! -f "$HOJA_LIBRES" ]] && echo "ID_TELEGRAM|CLAVE|VENCIMIENTO" > "$HOJA_LIBRES"
-[[ ! -f "$HOJA_USADAS" ]] && echo "CLAVE|IP|ID_TELEGRAM" > "$HOJA_USADAS"
+[[ ! -f $ARCHIVO_DATOS ]] && echo "CLAVE|ESTADO|IP|USUARIO|VENCIMIENTO" > "$ARCHIVO_DATOS"
 
 ENVIAR(){
   local TEXTO=$(echo "$1" | sed 's/ /%20/g' | sed 's/\n/%0A/g')
   wget -q -O /dev/null "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-  --post-data "chat_id=${TU_ID}&text=${TEXTO}&reply_markup={\"inline_keyboard\":[[{\"text\":\"🔑 GENERAR\",\"callback_data\":\"GENERAR\"}]]}"
+  --post-data "chat_id=${TU_ID}&text=${TEXTO}&reply_markup={\"inline_keyboard\":[[{\"text\":\"🔑 GENERAR\",\"callback_data\":\"generate\"}]]}"
 }
 
-GENERAR_CLAVE(){
-  # CLAVE DE EXACTAMENTE 20 CARACTERES
-  CLAVE=$(head -c15 /dev/urandom | base64 | tr -dc 'A-Z0-9' | head -c20)
-  VENCIMIENTO=$(date +%s -d '+4 hours')
-  echo "${TU_ID}|${CLAVE}|${VENCIMIENTO}" >> "$HOJA_LIBRES"
+# ✅ SUELTA EL BOTÓN INMEDIATAMENTE
+RESPONDER_BOTON(){
+  local ID_BOTON="$1"
+  wget -q -O /dev/null "https://api.telegram.org/bot${TOKEN}/answerCallbackQuery" \
+  --post-data "callback_query_id=${ID_BOTON}"
+}
 
-  # MENSAJE CON FORMATO IGUAL AL EJEMPLO, SEPARADO POR LÍNEAS
-  ENVIAR "
+# ✅ ESTA ES LA FUNCIÓN QUE SE LLAMA = /generate
+GENERAR(){
+  CLAVE=""
+  while [ ${#CLAVE} -lt 40 ]; do
+    BLOQUE=$(head -c 20 /dev/urandom | tr -dc 'A-Z0-9')
+    CLAVE="${CLAVE}${BLOQUE}"
+  done
+  CLAVE="${CLAVE:0:40}"
+  VENC=$(date +%s -d '+4 hours')
+  echo "$CLAVE|LIBRE|SIN_IP|FENIX 3815569765|$VENC" >> "$ARCHIVO_DATOS"
+
+ENVIAR "
 ━━━━━━━━━━━━━━━
-🔰 KEY PHENIX-M&M  🔰
+🔰 KEY PHENIX 🔰
 ━━━━━━━━━━━━━━━
-PHENIX 3815246197
+🆔 ID: ${TU_ID}
 ━━━━━━━━━━━━━━━
-🆔: ${TU_ID}
+🔑 CLAVE:
 ━━━━━━━━━━━━━━━
-${CLAVE}
+$CLAVE
+━━━━━━━━━━━━━━━
+INSTALADOR:
 ━━━━━━━━━━━━━━━
 rm -rf /root/install.sh; wget --no-cache -O /root/install.sh https://raw.githubusercontent.com/MARCELOSALVATIERRA926/PHENIX-M-M-2.0/main/install.sh; chmod +x /root/install.sh; /root/install.sh
 ━━━━━━━━━━━━━━━
-SO: Verificados
-- Ubuntu [22,24].04 x86_64
-- Debian 12 x86_64
+SISTEMAS:
+- Ubuntu 22 / 24.04
+- Debian 12
 ━━━━━━━━━━━━━━━
-Esta key expira en 4hs
+LA KEY PHENIX TIENE 
+UNA DURACIÓN
+DE ⏳ 4  HORAS 
 ━━━━━━━━━━━━━━━
 "
 }
 
-# Bucle principal
+echo "🔰 BOT CARGADO"
+ENVIAR "✅ BIENVENIDO A SCRIPT PHENIX%0A%0ATocá el botón o escribe /generate"
+
 while true; do
-  RESP=$(wget -q -O - "https://api.telegram.org/bot${TOKEN}/getUpdates?offset=$((ULTIMA_ID+1))")
-  ID_MENSAJE=$(echo "$RESP" | grep -o '"update_id":[0-9]*' | tail -n1 | cut -d: -f2)
-  [[ -n "$ID_MENSAJE" ]] && ULTIMA_ID=$ID_MENSAJE
+  RESP=$(wget -q -T 15 -O - "https://api.telegram.org/bot${TOKEN}/getUpdates?offset=$((ULTIMA_ID+1))&timeout=30")
 
-  TEXTO=$(echo "$RESP" | grep -o '"text":"[^"]*"' | tail -n1 | cut -d'"' -f4)
-  DATOS_BOTON=$(echo "$RESP" | grep -o '"callback_data":"[^"]*"' | tail -n1 | cut -d'"' -f4)
+  if echo "$RESP" | grep -q '"update_id"'; then
+    ID_MAS_ALTO=$(echo "$RESP" | grep -o '"update_id":[0-9]*' | tail -n1 | cut -d':' -f2)
 
-  [[ "$TEXTO" == "/generar" || "$DATOS_BOTON" == "GENERAR" ]] && GENERAR_CLAVE
+    if [[ "$ID_MAS_ALTO" -gt "$ULTIMA_ID" ]]; then
+      ULTIMA_ID="$ID_MAS_ALTO"
+
+      ID_BOTON=$(echo "$RESP" | grep -o '"callback_query_id":"[0-9]*"' | head -n1 | cut -d'"' -f4)
+      DATO=$(echo "$RESP" | grep -o '"callback_data":"[^"]*"' | head -n1 | cut -d'"' -f4)
+      TEXTO=$(echo "$RESP" | grep -o '"text":"[^"]*"' | head -n1 | cut -d'"' -f4)
+
+      # ✅ BOTÓN = MISMA FUNCIÓN QUE /generate
+      if [[ "$DATO" == "generate" ]]; then
+        RESPONDER_BOTON "$ID_BOTON"   # SUELTA EL BOTÓN → NO GIRA
+        GENERAR                        # LLAMA A LA MISMA FUNCIÓN
+      fi
+
+      # ✅ COMANDO /generate = MISMA FUNCIÓN
+      if [[ "$TEXTO" == "/generate" || "$TEXTO" == "/generar" ]]; then
+        GENERAR
+      fi
+    fi
+  fi
 
   sleep 2
 done
+EOF
+
+chmod +x bot.sh && bash bot.sh
