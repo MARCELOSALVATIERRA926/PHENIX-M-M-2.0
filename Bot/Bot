@@ -1,0 +1,53 @@
+#!/bin/bash
+# ==============================================
+# 🔰 PHENIX - M & M - BOT GENERADOR DE CLAVES
+# CLAVES DE 20 CARACTERES | VENCIMIENTO: 4 HORAS
+# ==============================================
+
+TOKEN="8803475189:AAEwP9xET8S_JPoNdoJ8-ZXlvUHA7IiCZYA"
+TU_ID="5538844330"
+HOJA_LIBRES="/opt/PhenixBot/claves_libres.txt"
+HOJA_USADAS="/opt/PhenixBot/claves_usadas.txt"
+ULTIMA_ID=0
+
+# Creamos las hojas si no existen
+[[ ! -f "$HOJA_LIBRES" ]] && echo "ID_TELEGRAM|CLAVE|VENCIMIENTO" > "$HOJA_LIBRES"
+[[ ! -f "$HOJA_USADAS" ]] && echo "CLAVE|IP|ID_TELEGRAM" > "$HOJA_USADAS"
+
+ENVIAR(){
+  local TEXTO=$(echo "$1" | sed 's/ /%20/g' | sed 's/\n/%0A/g')
+  wget -q -O /dev/null "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+  --post-data "chat_id=${TU_ID}&text=${TEXTO}&reply_markup={\"inline_keyboard\":[[{\"text\":\"🔑 GENERAR\",\"callback_data\":\"GENERAR\"}]]}"
+}
+
+GENERAR_CLAVE(){
+  # CLAVE DE EXACTAMENTE 20 CARACTERES
+  CLAVE=$(head -c15 /dev/urandom | base64 | tr -dc 'A-Z0-9' | head -c20)
+  VENCIMIENTO=$(date +%s -d '+4 hours')
+  echo "${TU_ID}|${CLAVE}|${VENCIMIENTO}" >> "$HOJA_LIBRES"
+
+  ENVIAR "
+━━━━━━━━━━━━━━━━━━━━
+🆔 ID: ${TU_ID}
+━━━━━━━━━━━━━━━━━━━━
+🔑 CLAVE:
+${CLAVE}
+━━━━━━━━━━━━━━━━━━━━
+⏳ VENCIMIENTO: 4 HORAS
+━━━━━━━━━━━━━━━━━━━━
+"
+}
+
+# Bucle principal
+while true; do
+  RESP=$(wget -q -O - "https://api.telegram.org/bot${TOKEN}/getUpdates?offset=$((ULTIMA_ID+1))")
+  ID_MENSAJE=$(echo "$RESP" | grep -o '"update_id":[0-9]*' | tail -n1 | cut -d: -f2)
+  [[ -n "$ID_MENSAJE" ]] && ULTIMA_ID=$ID_MENSAJE
+
+  TEXTO=$(echo "$RESP" | grep -o '"text":"[^"]*"' | tail -n1 | cut -d'"' -f4)
+  DATOS_BOTON=$(echo "$RESP" | grep -o '"callback_data":"[^"]*"' | tail -n1 | cut -d'"' -f4)
+
+  [[ "$TEXTO" == "/generar" || "$DATOS_BOTON" == "GENERAR" ]] && GENERAR_CLAVE
+
+  sleep 2
+done
