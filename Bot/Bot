@@ -3,63 +3,103 @@ cd /opt/PhenixBot && rm -f bot.sh && cat > bot.sh << 'EOF'
 TOKEN="8803475189:AAEwP9xET8S_JPoNdoJ8-ZXlvUHA7IiCZYA"
 TU_ID="5538844330"
 ARCHIVO_DATOS="/opt/PhenixBot/datos.txt"
+ARCHIVO_USUARIOS="/opt/PhenixBot/usuarios.txt"
 ULTIMA_ID=0
+DEFAULT_DIAS=30
 
-[[ ! -f $ARCHIVO_DATOS ]] && echo "CLAVE|ESTADO|IP|USUARIO|VENCIMIENTO" > "$ARCHIVO_DATOS"
+[[ ! -f "$ARCHIVO_DATOS" ]] && echo "CLAVE|ESTADO|IP|USUARIO|VENCIMIENTO" > "$ARCHIVO_DATOS"
+[[ ! -f "$ARCHIVO_USUARIOS" ]] && echo "$TU_ID|ADMIN|FENIX|9999999999" > "$ARCHIVO_USUARIOS"
 
 ENVIAR(){
-  local TEXTO=$(echo "$1" | sed 's/ /%20/g' | sed 's/\n/%0A/g')
+  local DESTINO="$1"
+  local TEXTO=$(echo "$2" | sed 's/ /%20/g' | sed 's/\n/%0A/g')
   wget -q -O /dev/null "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-  --post-data "chat_id=${TU_ID}&text=${TEXTO}&reply_markup={\"inline_keyboard\":[[{\"text\":\"🔑 GENERAR\",\"callback_data\":\"generate\"}]]}"
+  --post-data "chat_id=${DESTINO}&parse_mode=Markdown&text=${TEXTO}&reply_markup={\"inline_keyboard\":[[{\"text\":\"🔑 GENERAR\",\"callback_data\":\"generate\"}]]}"
 }
 
-# ✅ SUELTA EL BOTÓN INMEDIATAMENTE
 RESPONDER_BOTON(){
   local ID_BOTON="$1"
   wget -q -O /dev/null "https://api.telegram.org/bot${TOKEN}/answerCallbackQuery" \
   --post-data "callback_query_id=${ID_BOTON}"
 }
 
-# ✅ ESTA ES LA FUNCIÓN QUE SE LLAMA = /generate
-GENERAR(){
+GENERAR_CLAVE(){
+  local ID_USUARIO="$1"
+  local NOMBRE="$2"
   CLAVE=""
   while [ ${#CLAVE} -lt 40 ]; do
     BLOQUE=$(head -c 20 /dev/urandom | tr -dc 'A-Z0-9')
     CLAVE="${CLAVE}${BLOQUE}"
   done
   CLAVE="${CLAVE:0:40}"
-  VENC=$(date +%s -d '+4 hours')
-  echo "$CLAVE|LIBRE|SIN_IP|FENIX 3815569765|$VENC" >> "$ARCHIVO_DATOS"
+  VENC_CLAVE=$(date +%s -d '+4 hours')
+  echo "$CLAVE|LIBRE|SIN_IP|$NOMBRE|$VENC_CLAVE" >> "$ARCHIVO_DATOS"
 
-ENVIAR "
+ENVIAR "$ID_USUARIO" "
 ━━━━━━━━━━━━━━━
 🔰 KEY PHENIX 🔰
 ━━━━━━━━━━━━━━━
-🆔 ID: ${TU_ID}
+🆔 ID: $ID_USUARIO
+👤 USUARIO: $NOMBRE
 ━━━━━━━━━━━━━━━
 🔑 CLAVE:
 ━━━━━━━━━━━━━━━
-$CLAVE
+\`$CLAVE\`
 ━━━━━━━━━━━━━━━
 INSTALADOR:
 ━━━━━━━━━━━━━━━
-rm -rf /root/install.sh; wget --no-cache -O /root/install.sh https://raw.githubusercontent.com/MARCELOSALVATIERRA926/PHENIX-M-M-2.0/main/install.sh; chmod +x /root/install.sh; /root/install.sh
+\`rm -rf /root/install.sh; wget --no-cache -O /root/install.sh https://raw.githubusercontent.com/MARCELOSALVATIERRA926/PHENIX-M-M-2.0/main/install.sh; chmod +x /root/install.sh; /root/install.sh\`
 ━━━━━━━━━━━━━━━
-SISTEMAS:
-- Ubuntu 22 / 24.04
-- Debian 12
+SISTEMAS APTOS:
+📀- Ubuntu 22 / 24.04
+💽- Debian 12
 ━━━━━━━━━━━━━━━
-LA KEY PHENIX TIENE 
-UNA DURACIÓN
-DE ⏳ 4  HORAS 
+⏳ KEY VÁLIDA: 
+SOLO POR 4 HORAS
 ━━━━━━━━━━━━━━━
 "
 }
 
-echo "🔰 BOT CARGADO"
-ENVIAR "✅ BIENVENIDO A SCRIPT PHENIX%0A%0ATocá el botón o escribe /generate"
+TIENE_ACCESO_VIGENTE(){
+  local ID="$1"
+  local FILA=$(grep "^${ID}|" "$ARCHIVO_USUARIOS")
+  [[ -z "$FILA" ]] && return 1
+  VENC=$(echo "$FILA" | cut -d'|' -f4)
+  AHORA=$(date +%s)
+  [[ $AHORA -lt $VENC ]] && return 0 || return 1
+}
+
+ES_ADMIN(){
+  local ID="$1"
+  grep -q "^${ID}|ADMIN|" "$ARCHIVO_USUARIOS"
+}
+
+AGREGAR_USUARIO(){
+  local ID_NUEVO="$1"
+  local NOMBRE="$2"
+  local DIAS="$3"
+  [[ -z "$DIAS" ]] && DIAS=$DEFAULT_DIAS
+  VENCIMIENTO=$(date +%s -d "+$DIAS days")
+  if ! grep -q "^${ID_NUEVO}|" "$ARCHIVO_USUARIOS"; then
+    echo "$ID_NUEVO|USUARIO|$NOMBRE|$VENCIMIENTO" >> "$ARCHIVO_USUARIOS"
+    echo "$VENCIMIENTO"
+    return 0
+  else
+    return 1
+  fi
+}
+
+clear
+echo "======================================"
+echo "     🔰 BOT PHENIX-M&M INICIADO"
+echo "======================================"
+echo "✅ Tu ID: $TU_ID"
+echo ""
+
+ENVIAR "$TU_ID" "✅ BOT ENCENDIDO%0A%0AAgregar usuario:%0A/agregar ID NOMBRE DÍAS"
 
 while true; do
+  echo "--------------------------------------"
   RESP=$(wget -q -T 15 -O - "https://api.telegram.org/bot${TOKEN}/getUpdates?offset=$((ULTIMA_ID+1))&timeout=30")
 
   if echo "$RESP" | grep -q '"update_id"'; then
@@ -71,16 +111,46 @@ while true; do
       ID_BOTON=$(echo "$RESP" | grep -o '"callback_query_id":"[0-9]*"' | head -n1 | cut -d'"' -f4)
       DATO=$(echo "$RESP" | grep -o '"callback_data":"[^"]*"' | head -n1 | cut -d'"' -f4)
       TEXTO=$(echo "$RESP" | grep -o '"text":"[^"]*"' | head -n1 | cut -d'"' -f4)
+      ID_REMITE=$(echo "$RESP" | grep -o '"from":{"id":[0-9]*' | grep -o '[0-9]*' | head -n1)
+      NOMBRE=$(echo "$RESP" | grep -o '"first_name":"[^"]*"' | head -n1 | cut -d'"' -f4)
 
-      # ✅ BOTÓN = MISMA FUNCIÓN QUE /generate
-      if [[ "$DATO" == "generate" ]]; then
-        RESPONDER_BOTON "$ID_BOTON"   # SUELTA EL BOTÓN → NO GIRA
-        GENERAR                        # LLAMA A LA MISMA FUNCIÓN
-      fi
+      echo "📩 DE: $ID_REMITE ($NOMBRE) | Texto: $TEXTO"
 
-      # ✅ COMANDO /generate = MISMA FUNCIÓN
-      if [[ "$TEXTO" == "/generate" || "$TEXTO" == "/generar" ]]; then
-        GENERAR
+      if [[ "$TEXTO" == /agregar* ]]; then
+        if ES_ADMIN "$ID_REMITE"; then
+          ID_NUEVO=$(echo "$TEXTO" | awk '{print $2}')
+          NOMBRE_NUEVO=$(echo "$TEXTO" | awk '{print $3}')
+          DIAS=$(echo "$TEXTO" | awk '{print $4}')
+          RESULTADO=$(AGREGAR_USUARIO "$ID_NUEVO" "$NOMBRE_NUEVO" "$DIAS")
+          if [[ $? -eq 0 ]]; then
+            DIAS_MOSTRAR=${DIAS:-$DEFAULT_DIAS}
+            FECHA_VENC=$(date -d "@$RESULTADO" +"%d/%m/%Y")
+            echo "✅ AGREGADO: $ID_NUEVO → $NOMBRE_NUEVO | $DIAS_MOSTRAR días → Vence: $FECHA_VENC"
+            ENVIAR "$TU_ID" "✅ USUARIO AGREGADO%0A🆔 ID: $ID_NUEVO%0A👤 NOMBRE: $NOMBRE_NUEVO%0A⏰ DÍAS: $DIAS_MOSTRAR%0A📅 VENCE: $FECHA_VENC"
+            ENVIAR "$ID_NUEVO" "✅ TE DIERON PERMISO%0A%0ATocá el botón para generar claves%0A📅 Tu acceso vence: $FECHA_VENC"
+          else
+            ENVIAR "$TU_ID" "⚠️ ESE USUARIO YA EXISTE"
+          fi
+        else
+          ENVIAR "$ID_REMITE" "❌ SOLO EL ADMIN PUEDE AGREGAR USUARIOS"
+        fi
+
+      elif [[ "$DATO" == "generate" || "$TEXTO" == "/generar" || "$TEXTO" == "/generate" ]]; then
+        if TIENE_ACCESO_VIGENTE "$ID_REMITE"; then
+          RESPONDER_BOTON "$ID_BOTON"
+          echo "✅ CLAVE GENERADA PARA: $ID_REMITE ($NOMBRE)"
+          GENERAR_CLAVE "$ID_REMITE" "$NOMBRE"
+        else
+          echo "❌ ACCESO DENEGADO: $ID_REMITE"
+          ENVIAR "$ID_REMITE" "❌ SIN ACCESO%0A%0ATu ID es: \`$ID_REMITE\`%0AMandalo al administrador"
+        fi
+
+      elif [[ "$TEXTO" == "/start" ]]; then
+        if TIENE_ACCESO_VIGENTE "$ID_REMITE"; then
+          ENVIAR "$ID_REMITE" "✅ BIENVENIDO A SCRIPT PHENIX%0A%0ATocá el botón para generar la clave"
+        else
+          ENVIAR "$ID_REMITE" "❌ SIN ACCESO%0A%0ATu ID es: \`$ID_REMITE\`%0AMandalo al administrador"
+        fi
       fi
     fi
   fi
@@ -89,4 +159,7 @@ while true; do
 done
 EOF
 
-chmod +x bot.sh && bash bot.sh
+chmod +x bot.sh
+cd /opt/PhenixBot
+pkill -f PhenixBot 2>/dev/null
+screen -dmS PhenixBot bash bot.sh
