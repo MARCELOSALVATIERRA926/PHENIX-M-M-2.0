@@ -6,13 +6,15 @@ import random, string, time, os
 
 TOKEN = "8803475189:AAEwP9xET8S_JPoNdoJ8-ZXlvUHA7IiCZYA"
 TU_ID = 5538844330
-ARCHIVO_DATOS = "/opt/PhenixBot/datos.txt"
-ARCHIVO_USUARIOS = "/opt/PhenixBot/usuarios.txt"
-DEFAULT_DIAS = 30
 
-if not os.path.exists(ARCHIVO_DATOS):
-    with open(ARCHIVO_DATOS, "w") as f:
-        f.write("CLAVE|ESTADO|IP|USUARIO|VENCIMIENTO\n")
+# ✅ ARCHIVO MAESTRO DE USUARIOS
+ARCHIVO_USUARIOS = "/opt/PhenixBot/usuarios.txt"
+CARPETA_CLAVES = "/opt/PhenixBot/usuarios_claves/"
+DEFAULT_DIAS = 30
+DURACION_CLAVE_HORAS = 4
+
+# ✅ CREAMOS CARPETA Y ARCHIVOS SI NO EXISTEN
+os.makedirs(CARPETA_CLAVES, exist_ok=True)
 if not os.path.exists(ARCHIVO_USUARIOS):
     with open(ARCHIVO_USUARIOS, "w") as f:
         f.write(f"{TU_ID}|ADMIN|FENIX|9999999999\n")
@@ -20,19 +22,29 @@ if not os.path.exists(ARCHIVO_USUARIOS):
 def es_admin(uid: int) -> bool:
     return uid == TU_ID
 
-def tiene_acceso(uid: int) -> bool:
-    if not os.path.exists(ARCHIVO_USUARIOS): return False
+def tiene_acceso(uid: int) -> tuple:
+    """Devuelve (TIENE_ACCESO, NOMBRE, VENCIMIENTO)"""
+    if not os.path.exists(ARCHIVO_USUARIOS):
+        return False, "", 0
     with open(ARCHIVO_USUARIOS) as f:
         for l in f:
             p = l.strip().split("|")
             if len(p)>=4 and p[0]==str(uid):
-                return time.time() < int(p[3])
-    return False
+                venc = int(p[3])
+                return time.time() < venc, p[2], venc
+    return False, "", 0
 
-def generar_clave() -> str:
-    return ''.join(random.choices(string.ascii_uppercase+string.digits, k=40))
+def id_corto(uid: int) -> str:
+    """Toma los 4 últimos dígitos del ID para identificar las hojitas"""
+    return str(uid)[-4:]
 
-# ✅ 3 BOTONES EN LÍNEA
+def generar_clave(uid: int) -> str:
+    """Clave empieza con ID_corto + 36 caracteres aleatorios = 40 TOTAL"""
+    prefijo = id_corto(uid)
+    resto = ''.join(random.choices(string.ascii_uppercase + string.digits, k=36))
+    return prefijo + resto
+
+# ✅ BOTONES
 teclado_admin = [
     [
         InlineKeyboardButton("🔑 GENERAR", callback_data="GENERAR"),
@@ -44,25 +56,49 @@ teclado_usuario = [
     [InlineKeyboardButton("🔑 GENERAR", callback_data="GENERAR")]
 ]
 
+# ✅ LIMPIA CLAVES VENCIDAS DE LA HOJITA ACTIVAS
+def limpiar_activas(uid: int):
+    id4 = id_corto(uid)
+    archivo_activas = os.path.join(CARPETA_CLAVES, f"{id4}_activas.txt")
+    if not os.path.exists(archivo_activas):
+        return
+    ahora = time.time()
+    validas = []
+    with open(archivo_activas) as f:
+        for l in f:
+            p = l.strip().split("|")
+            if len(p)>=2 and int(p[1]) > ahora:
+                validas.append(l)
+    with open(archivo_activas, "w") as f:
+        f.writelines(validas)
+
+# ✅ GENERAR CLAVE → VA A SU HOJITA DE ACTIVAS
 async def btn_generar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
     uid = update.effective_user.id
-    nom = update.effective_user.first_name or "USUARIO"
+    acceso, nom, _ = tiene_acceso(uid)
 
-    if not tiene_acceso(uid):
-        await q.message.reply_text("❌ SIN ACCESO\n\nTu ID es: `"+str(uid)+"`\nMandalo al administrador", parse_mode="Markdown")
+    if not acceso:
+        await q.message.reply_text(
+            "❌ NO TENÉS PERMISO PARA GENERAR CLAVES\n\nTu ID es: `" + str(uid) + "`\nMandalo al administrador para que te habilite.",
+            parse_mode="Markdown"
+        )
         return
 
-    clave = generar_clave()
-    venc = int(time.time() + 4*3600)
-    with open(ARCHIVO_DATOS, "a") as f:
-        f.write(f"{clave}|LIBRE|SIN_IP|{nom}|{venc}\n")
+    clave = generar_clave(uid)
+    venc = int(time.time() + DURACION_CLAVE_HORAS * 3600)
+    id4 = id_corto(uid)
+
+    # ✅ GUARDA EN SU HOJITA DE ACTIVAS
+    archivo_activas = os.path.join(CARPETA_CLAVES, f"{id4}_activas.txt")
+    with open(archivo_activas, "a") as f:
+        f.write(f"{clave}|{venc}\n")
 
     msg = f"""━━━━━━━━━━━━━━━
 🔰 KEY PHENIX 🔰
 ━━━━━━━━━━━━━━━
-🆔 ID: {uid}
+🆔 ID CORTO: {id4}
 👤 USUARIO: {nom}
 ━━━━━━━━━━━━━━━
 🔑 CLAVE:
@@ -77,7 +113,7 @@ SISTEMAS APTOS:
 📀- Ubuntu 22 / 24.04
 💽- Debian 12
 ━━━━━━━━━━━━━━━
-⏳ KEY VÁLIDA: SOLO POR 4 HORAS
+⏳ KEY VÁLIDA: SOLO POR {DURACION_CLAVE_HORAS} HORAS
 ━━━━━━━━━━━━━━━"""
     tk = InlineKeyboardMarkup(teclado_admin) if es_admin(uid) else InlineKeyboardMarkup(teclado_usuario)
     await q.message.reply_text(msg, parse_mode="Markdown", reply_markup=tk)
@@ -95,7 +131,10 @@ async def btn_agregar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 /agregar ID NOMBRE DÍAS
 
 📌 EJEMPLO:
-/agregar 123456789 Juan 30"""
+/agregar 123456789 Juan 30
+
+✅ Al vencer: NO crea claves nuevas
+✅ PERO sus instalaciones QUEDAN"""
     await q.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(teclado_admin))
 
 async def btn_borrar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
@@ -106,6 +145,153 @@ async def btn_borrar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text("❌ SOLO EL ADMINISTRADOR PUEDE BORRAR USUARIOS")
         return
     msg = """🗑️ PARA BORRAR UN USUARIO:
+
+📌 COMANDO:
+/borrar ID
+
+📌 EJEMPLO:
+/borrar 123456789
+
+✅ BORRA TODO: USUARIO + CLAVES + INSTALACIONES"""
+    await q.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(teclado_admin))
+
+# ✅ AGREGAR USUARIO → SE CREA Y PUEDE GENERAR
+async def cmd_agregar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not es_admin(uid):
+        await update.message.reply_text("❌ NO TENÉS PERMISO")
+        return
+    if len(ctx.args)<2:
+        await update.message.reply_text("⚠️ USO: /agregar ID NOMBRE [DÍAS]")
+        return
+    nuevo_id = int(ctx.args[0])
+    nombre = ctx.args[1]
+    dias = int(ctx.args[2]) if len(ctx.args)>=3 else DEFAULT_DIAS
+    venc = int(time.time() + dias * 86400)
+    id4 = id_corto(nuevo_id)
+
+    # ✅ VERIFICA SI YA EXISTE
+    existe = False
+    with open(ARCHIVO_USUARIOS) as f:
+        existe = any(l.startswith(f"{nuevo_id}|") for l in f)
+    if existe:
+        await update.message.reply_text("⚠️ ESE USUARIO YA EXISTE")
+        return
+
+    # ✅ LO AGREGA
+    with open(ARCHIVO_USUARIOS, "a") as f:
+        f.write(f"{nuevo_id}|USUARIO|{nombre}|{venc}\n")
+
+    fecha = time.strftime("%d/%m/%Y", time.localtime(venc))
+    await update.message.reply_text(f"""✅ USUARIO AGREGADO
+
+━━━━━━━━━━━━━━━
+🆔 ID: {nuevo_id}
+🏷️ ID CORTO: {id4}
+👤 NOMBRE: {nombre}
+⏰ DÍAS: {dias}
+📅 VENCE: {fecha}
+━━━━━━━━━━━━━━━
+
+✅ Sus hojitas: {id4}_activas.txt + {id4}_instaladas.txt""",
+        reply_markup=InlineKeyboardMarkup(teclado_admin)
+    )
+
+# ✅ BORRAR USUARIO → BORRA TODO COMPLETO
+async def cmd_borrar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not es_admin(uid):
+        await update.message.reply_text("❌ NO TENÉS PERMISO")
+        return
+    if len(ctx.args)<1:
+        await update.message.reply_text("⚠️ USO: /borrar ID")
+        return
+
+    id_borrar = str(ctx.args[0])
+    id4 = id_corto(id_borrar)
+    nombre_borrar = ""
+    dias_restantes = 0
+    fecha_venc = ""
+
+    # 🗑️ BORRA DE USUARIOS
+    lineas_nuevas = []
+    with open(ARCHIVO_USUARIOS) as f:
+        for l in f:
+            partes = l.strip().split("|")
+            if len(partes)>=4 and partes[0]==id_borrar:
+                nombre_borrar = partes[2]
+                venc = int(partes[3])
+                ahora = int(time.time())
+                dias_restantes = max(0, int((venc - ahora)/86400))
+                fecha_venc = time.strftime("%d/%m/%Y", time.localtime(venc))
+            else:
+                lineas_nuevas.append(l)
+
+    if not nombre_borrar:
+        await update.message.reply_text("⚠️ NO SE ENCONTRÓ ESE USUARIO")
+        return
+
+    with open(ARCHIVO_USUARIOS, "w") as f:
+        f.writelines(lineas_nuevas)
+
+    # 🗑️ BORRA SUS 2 HOJITAS
+    arch1 = os.path.join(CARPETA_CLAVES, f"{id4}_activas.txt")
+    arch2 = os.path.join(CARPETA_CLAVES, f"{id4}_instaladas.txt")
+    if os.path.exists(arch1): os.remove(arch1)
+    if os.path.exists(arch2): os.remove(arch2)
+
+    await update.message.reply_text(f"""🗑️ USUARIO BORRADO COMPLETO ✅
+
+━━━━━━━━━━━━━━━
+🆔 ID: {id_borrar}
+🏷️ ID CORTO: {id4}
+👤 NOMBRE: {nombre_borrar}
+⏰ DÍAS QUE TENÍA: {dias_restantes}
+📅 VENCIMIENTO: {fecha_venc}
+━━━━━━━━━━━━━━━
+
+✅ USUARIO + SUS 2 HOJITAS ELIMINADOS""",
+        reply_markup=InlineKeyboardMarkup(teclado_admin)
+    )
+
+# ✅ MENSAJE DE BIENVENIDA
+async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    nombre = update.effective_user.first_name or "USUARIO"
+    acceso, _, _ = tiene_acceso(uid)
+    id4 = id_corto(uid)
+
+    if es_admin(uid):
+        await update.message.reply_text(
+            f"👋 ¡HOLA, {nombre}!\n\n✅ BIENVENIDO A PHENIX-M&M\nSOS EL ADMINISTRADOR\n\n📂 Sistema por hojitas:\n🆔 Tu ID corto: {id4}\n🔑 {id4}_activas.txt (4h)\n📦 {id4}_instaladas.txt (permanente)\n\nTocá los botones abajo:",
+            reply_markup=InlineKeyboardMarkup(teclado_admin)
+        )
+    elif acceso:
+        await update.message.reply_text(
+            f"👋 ¡HOLA, {nombre}!\n\n✅ BIENVENIDO A PHENIX-M&M\n\n🆔 Tu ID corto: {id4}\nTocá 🔑 GENERAR para tu clave:",
+            reply_markup=InlineKeyboardMarkup(teclado_usuario)
+        )
+    else:
+        await update.message.reply_text(
+            f"👋 ¡HOLA!\n\n❌ NO TENÉS ACCESO\n\nTu ID es: `{uid}`\nMandalo al administrador.",
+            parse_mode="Markdown"
+        )
+
+if __name__ == "__main__":
+    print("🔰 BOT PHENIX INICIADO — SISTEMA POR HOJITAS POR USUARIO")
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("agregar", cmd_agregar))
+    app.add_handler(CommandHandler("borrar", cmd_borrar))
+    app.add_handler(CallbackQueryHandler(btn_generar, pattern="^GENERAR$"))
+    app.add_handler(CallbackQueryHandler(btn_agregar, pattern="^AGREGAR$"))
+    app.add_handler(CallbackQueryHandler(btn_borrar, pattern="^BORRAR$"))
+    print("✅ LISTO — hojitas por usuario: activas(4h) + instaladas(permanente)")
+    app.run_polling()
+EOF
+
+pkill -f "python3 /opt/PhenixBot/bot.py" 2>/dev/null
+screen -dmS PhenixBot python3 /opt/PhenixBot/bot.py
 
 📌 COMANDO:
 /borrar ID
