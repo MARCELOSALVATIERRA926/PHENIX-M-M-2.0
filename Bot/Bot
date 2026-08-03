@@ -1,165 +1,294 @@
-cd /opt/PhenixBot && rm -f bot.sh && cat > bot.sh << 'EOF'
-#!/bin/bash
-TOKEN="8803475189:AAEwP9xET8S_JPoNdoJ8-ZXlvUHA7IiCZYA"
-TU_ID="5538844330"
-ARCHIVO_DATOS="/opt/PhenixBot/datos.txt"
-ARCHIVO_USUARIOS="/opt/PhenixBot/usuarios.txt"
-ULTIMA_ID=0
-DEFAULT_DIAS=30
+cd /opt/PhenixBot && rm -f bot.py && cat > bot.py << 'EOF'
+#!/usr/bin/env python3
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, ContextTypes
+import random, string, time, os
 
-[[ ! -f "$ARCHIVO_DATOS" ]] && echo "CLAVE|ESTADO|IP|USUARIO|VENCIMIENTO" > "$ARCHIVO_DATOS"
-[[ ! -f "$ARCHIVO_USUARIOS" ]] && echo "$TU_ID|ADMIN|FENIX|9999999999" > "$ARCHIVO_USUARIOS"
+TOKEN = "8803475189:AAEwP9xET8S_JPoNdoJ8-ZXlvUHA7IiCZYA"
+TU_ID = 5538844330
 
-ENVIAR(){
-  local DESTINO="$1"
-  local TEXTO=$(echo "$2" | sed 's/ /%20/g' | sed 's/\n/%0A/g')
-  wget -q -O /dev/null "https://api.telegram.org/bot${TOKEN}/sendMessage" \
-  --post-data "chat_id=${DESTINO}&parse_mode=Markdown&text=${TEXTO}&reply_markup={\"inline_keyboard\":[[{\"text\":\"🔑 GENERAR\",\"callback_data\":\"generate\"}]]}"
-}
+# ✅ ARCHIVO MAESTRO DE USUARIOS
+ARCHIVO_USUARIOS = "/opt/PhenixBot/usuarios.txt"
+CARPETA_CLAVES = "/opt/PhenixBot/usuarios_claves/"
+DEFAULT_DIAS = 30
+DURACION_CLAVE_HORAS = 4
 
-RESPONDER_BOTON(){
-  local ID_BOTON="$1"
-  wget -q -O /dev/null "https://api.telegram.org/bot${TOKEN}/answerCallbackQuery" \
-  --post-data "callback_query_id=${ID_BOTON}"
-}
+# ✅ CREAMOS CARPETA Y ARCHIVOS SI NO EXISTEN
+os.makedirs(CARPETA_CLAVES, exist_ok=True)
+if not os.path.exists(ARCHIVO_USUARIOS):
+    with open(ARCHIVO_USUARIOS, "w") as f:
+        f.write(f"{TU_ID}|ADMIN|FENIX|9999999999\n")
 
-GENERAR_CLAVE(){
-  local ID_USUARIO="$1"
-  local NOMBRE="$2"
-  CLAVE=""
-  while [ ${#CLAVE} -lt 40 ]; do
-    BLOQUE=$(head -c 20 /dev/urandom | tr -dc 'A-Z0-9')
-    CLAVE="${CLAVE}${BLOQUE}"
-  done
-  CLAVE="${CLAVE:0:40}"
-  VENC_CLAVE=$(date +%s -d '+4 hours')
-  echo "$CLAVE|LIBRE|SIN_IP|$NOMBRE|$VENC_CLAVE" >> "$ARCHIVO_DATOS"
+def es_admin(uid: int) -> bool:
+    return uid == TU_ID
 
-ENVIAR "$ID_USUARIO" "
-━━━━━━━━━━━━━━━
+def tiene_acceso(uid: int) -> tuple:
+    """Devuelve (TIENE_ACCESO, NOMBRE, VENCIMIENTO)"""
+    if not os.path.exists(ARCHIVO_USUARIOS):
+        return False, "", 0
+    with open(ARCHIVO_USUARIOS) as f:
+        for l in f:
+            p = l.strip().split("|")
+            if len(p)>=4 and p[0]==str(uid):
+                venc = int(p[3])
+                return time.time() < venc, p[2], venc
+    return False, "", 0
+
+def id_corto(uid: int) -> str:
+    """Toma los 4 últimos dígitos del ID para identificar las hojitas"""
+    return str(uid)[-4:]
+
+def generar_clave(uid: int) -> str:
+    """Clave empieza con ID_corto + 36 caracteres aleatorios = 40 TOTAL"""
+    prefijo = id_corto(uid)
+    resto = ''.join(random.choices(string.ascii_uppercase + string.digits, k=36))
+    return prefijo + resto
+
+# ✅ BOTONES
+teclado_admin = [
+    [
+        InlineKeyboardButton("🔑 GENERAR", callback_data="GENERAR"),
+        InlineKeyboardButton("➕ AGREGAR", callback_data="AGREGAR"),
+        InlineKeyboardButton("🗑️ BORRAR", callback_data="BORRAR")
+    ]
+]
+teclado_usuario = [
+    [InlineKeyboardButton("🔑 GENERAR", callback_data="GENERAR")]
+]
+
+# ✅ LIMPIA CLAVES VENCIDAS DE LA HOJITA ACTIVAS
+def limpiar_activas(uid: int):
+    id4 = id_corto(uid)
+    archivo_activas = os.path.join(CARPETA_CLAVES, f"{id4}_activas.txt")
+    if not os.path.exists(archivo_activas):
+        return
+    ahora = time.time()
+    validas = []
+    with open(archivo_activas) as f:
+        for l in f:
+            p = l.strip().split("|")
+            if len(p)>=2 and int(p[1]) > ahora:
+                validas.append(l)
+    with open(archivo_activas, "w") as f:
+        f.writelines(validas)
+
+# ✅ GENERAR CLAVE → VA A SU HOJITA DE ACTIVAS
+async def btn_generar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    uid = update.effective_user.id
+    acceso, nom, _ = tiene_acceso(uid)
+
+    if not acceso:
+        await q.message.reply_text(
+            "❌ NO TENÉS PERMISO PARA GENERAR CLAVES\n\nTu ID es: `" + str(uid) + "`\nMandalo al administrador para que te habilite.",
+            parse_mode="Markdown"
+        )
+        return
+
+    clave = generar_clave(uid)
+    venc = int(time.time() + DURACION_CLAVE_HORAS * 3600)
+    id4 = id_corto(uid)
+
+    # ✅ GUARDA EN SU HOJITA DE ACTIVAS
+    archivo_activas = os.path.join(CARPETA_CLAVES, f"{id4}_activas.txt")
+    with open(archivo_activas, "a") as f:
+        f.write(f"{clave}|{venc}\n")
+
+    msg = f"""━━━━━━━━━━━━━━━
 🔰 KEY PHENIX 🔰
 ━━━━━━━━━━━━━━━
-🆔 ID: $ID_USUARIO
-👤 USUARIO: $NOMBRE
+🆔 ID CORTO: {id4}
+👤 USUARIO: {nom}
 ━━━━━━━━━━━━━━━
 🔑 CLAVE:
 ━━━━━━━━━━━━━━━
-\`$CLAVE\`
+`{clave}`
 ━━━━━━━━━━━━━━━
 INSTALADOR:
 ━━━━━━━━━━━━━━━
-\`rm -rf /root/install.sh; wget --no-cache -O /root/install.sh https://raw.githubusercontent.com/MARCELOSALVATIERRA926/PHENIX-M-M-2.0/main/install.sh; chmod +x /root/install.sh; /root/install.sh\`
+`rm -rf /root/install.sh; wget --no-cache -O /root/install.sh https://raw.githubusercontent.com/MARCELOSALVATIERRA926/PHENIX-M-M-2.0/main/install.sh; chmod +x /root/install.sh; /root/install.sh`
 ━━━━━━━━━━━━━━━
 SISTEMAS APTOS:
 📀- Ubuntu 22 / 24.04
 💽- Debian 12
 ━━━━━━━━━━━━━━━
-⏳ KEY VÁLIDA: 
-SOLO POR 4 HORAS
+⏳ KEY VÁLIDA: SOLO POR {DURACION_CLAVE_HORAS} HORAS
+━━━━━━━━━━━━━━━"""
+    tk = InlineKeyboardMarkup(teclado_admin) if es_admin(uid) else InlineKeyboardMarkup(teclado_usuario)
+    await q.message.reply_text(msg, parse_mode="Markdown", reply_markup=tk)
+
+async def btn_agregar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    uid = update.effective_user.id
+    if not es_admin(uid):
+        await q.message.reply_text("❌ SOLO EL ADMINISTRADOR PUEDE AGREGAR USUARIOS")
+        return
+    msg = """📝 PARA AGREGAR UN USUARIO:
+
+📌 COMANDO:
+/agregar ID NOMBRE DÍAS
+
+📌 EJEMPLO:
+/agregar 123456789 Juan 30
+
+✅ Al vencer: NO crea claves nuevas
+✅ PERO sus instalaciones QUEDAN"""
+    await q.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(teclado_admin))
+
+async def btn_borrar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+    uid = update.effective_user.id
+    if not es_admin(uid):
+        await q.message.reply_text("❌ SOLO EL ADMINISTRADOR PUEDE BORRAR USUARIOS")
+        return
+    msg = """🗑️ PARA BORRAR UN USUARIO:
+
+📌 COMANDO:
+/borrar ID
+
+📌 EJEMPLO:
+/borrar 123456789
+
+✅ BORRA TODO: USUARIO + CLAVES + INSTALACIONES"""
+    await q.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(teclado_admin))
+
+# ✅ AGREGAR USUARIO → SE CREA Y PUEDE GENERAR
+async def cmd_agregar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not es_admin(uid):
+        await update.message.reply_text("❌ NO TENÉS PERMISO")
+        return
+    if len(ctx.args)<2:
+        await update.message.reply_text("⚠️ USO: /agregar ID NOMBRE [DÍAS]")
+        return
+    nuevo_id = int(ctx.args[0])
+    nombre = ctx.args[1]
+    dias = int(ctx.args[2]) if len(ctx.args)>=3 else DEFAULT_DIAS
+    venc = int(time.time() + dias * 86400)
+    id4 = id_corto(nuevo_id)
+
+    # ✅ VERIFICA SI YA EXISTE
+    existe = False
+    with open(ARCHIVO_USUARIOS) as f:
+        existe = any(l.startswith(f"{nuevo_id}|") for l in f)
+    if existe:
+        await update.message.reply_text("⚠️ ESE USUARIO YA EXISTE")
+        return
+
+    # ✅ LO AGREGA
+    with open(ARCHIVO_USUARIOS, "a") as f:
+        f.write(f"{nuevo_id}|USUARIO|{nombre}|{venc}\n")
+
+    fecha = time.strftime("%d/%m/%Y", time.localtime(venc))
+    await update.message.reply_text(f"""✅ USUARIO AGREGADO
+
 ━━━━━━━━━━━━━━━
-"
-}
+🆔 ID: {nuevo_id}
+🏷️ ID CORTO: {id4}
+👤 NOMBRE: {nombre}
+⏰ DÍAS: {dias}
+📅 VENCE: {fecha}
+━━━━━━━━━━━━━━━
 
-TIENE_ACCESO_VIGENTE(){
-  local ID="$1"
-  local FILA=$(grep "^${ID}|" "$ARCHIVO_USUARIOS")
-  [[ -z "$FILA" ]] && return 1
-  VENC=$(echo "$FILA" | cut -d'|' -f4)
-  AHORA=$(date +%s)
-  [[ $AHORA -lt $VENC ]] && return 0 || return 1
-}
+✅ Sus hojitas: {id4}_activas.txt + {id4}_instaladas.txt""",
+        reply_markup=InlineKeyboardMarkup(teclado_admin)
+    )
 
-ES_ADMIN(){
-  local ID="$1"
-  grep -q "^${ID}|ADMIN|" "$ARCHIVO_USUARIOS"
-}
+# ✅ BORRAR USUARIO → BORRA TODO COMPLETO
+async def cmd_borrar(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    if not es_admin(uid):
+        await update.message.reply_text("❌ NO TENÉS PERMISO")
+        return
+    if len(ctx.args)<1:
+        await update.message.reply_text("⚠️ USO: /borrar ID")
+        return
 
-AGREGAR_USUARIO(){
-  local ID_NUEVO="$1"
-  local NOMBRE="$2"
-  local DIAS="$3"
-  [[ -z "$DIAS" ]] && DIAS=$DEFAULT_DIAS
-  VENCIMIENTO=$(date +%s -d "+$DIAS days")
-  if ! grep -q "^${ID_NUEVO}|" "$ARCHIVO_USUARIOS"; then
-    echo "$ID_NUEVO|USUARIO|$NOMBRE|$VENCIMIENTO" >> "$ARCHIVO_USUARIOS"
-    echo "$VENCIMIENTO"
-    return 0
-  else
-    return 1
-  fi
-}
+    id_borrar = str(ctx.args[0])
+    id4 = id_corto(id_borrar)
+    nombre_borrar = ""
+    dias_restantes = 0
+    fecha_venc = ""
 
-clear
-echo "======================================"
-echo "     🔰 BOT PHENIX-M&M INICIADO"
-echo "======================================"
-echo "✅ Tu ID: $TU_ID"
-echo ""
+    # 🗑️ BORRA DE USUARIOS
+    lineas_nuevas = []
+    with open(ARCHIVO_USUARIOS) as f:
+        for l in f:
+            partes = l.strip().split("|")
+            if len(partes)>=4 and partes[0]==id_borrar:
+                nombre_borrar = partes[2]
+                venc = int(partes[3])
+                ahora = int(time.time())
+                dias_restantes = max(0, int((venc - ahora)/86400))
+                fecha_venc = time.strftime("%d/%m/%Y", time.localtime(venc))
+            else:
+                lineas_nuevas.append(l)
 
-ENVIAR "$TU_ID" "✅ BOT ENCENDIDO%0A%0AAgregar usuario:%0A/agregar ID NOMBRE DÍAS"
+    if not nombre_borrar:
+        await update.message.reply_text("⚠️ NO SE ENCONTRÓ ESE USUARIO")
+        return
 
-while true; do
-  echo "--------------------------------------"
-  RESP=$(wget -q -T 15 -O - "https://api.telegram.org/bot${TOKEN}/getUpdates?offset=$((ULTIMA_ID+1))&timeout=30")
+    with open(ARCHIVO_USUARIOS, "w") as f:
+        f.writelines(lineas_nuevas)
 
-  if echo "$RESP" | grep -q '"update_id"'; then
-    ID_MAS_ALTO=$(echo "$RESP" | grep -o '"update_id":[0-9]*' | tail -n1 | cut -d':' -f2)
+    # 🗑️ BORRA SUS 2 HOJITAS
+    arch1 = os.path.join(CARPETA_CLAVES, f"{id4}_activas.txt")
+    arch2 = os.path.join(CARPETA_CLAVES, f"{id4}_instaladas.txt")
+    if os.path.exists(arch1): os.remove(arch1)
+    if os.path.exists(arch2): os.remove(arch2)
 
-    if [[ "$ID_MAS_ALTO" -gt "$ULTIMA_ID" ]]; then
-      ULTIMA_ID="$ID_MAS_ALTO"
+    await update.message.reply_text(f"""🗑️ USUARIO BORRADO COMPLETO ✅
 
-      ID_BOTON=$(echo "$RESP" | grep -o '"callback_query_id":"[0-9]*"' | head -n1 | cut -d'"' -f4)
-      DATO=$(echo "$RESP" | grep -o '"callback_data":"[^"]*"' | head -n1 | cut -d'"' -f4)
-      TEXTO=$(echo "$RESP" | grep -o '"text":"[^"]*"' | head -n1 | cut -d'"' -f4)
-      ID_REMITE=$(echo "$RESP" | grep -o '"from":{"id":[0-9]*' | grep -o '[0-9]*' | head -n1)
-      NOMBRE=$(echo "$RESP" | grep -o '"first_name":"[^"]*"' | head -n1 | cut -d'"' -f4)
+━━━━━━━━━━━━━━━
+🆔 ID: {id_borrar}
+🏷️ ID CORTO: {id4}
+👤 NOMBRE: {nombre_borrar}
+⏰ DÍAS QUE TENÍA: {dias_restantes}
+📅 VENCIMIENTO: {fecha_venc}
+━━━━━━━━━━━━━━━
 
-      echo "📩 DE: $ID_REMITE ($NOMBRE) | Texto: $TEXTO"
+✅ USUARIO + SUS 2 HOJITAS ELIMINADOS""",
+        reply_markup=InlineKeyboardMarkup(teclado_admin)
+    )
 
-      if [[ "$TEXTO" == /agregar* ]]; then
-        if ES_ADMIN "$ID_REMITE"; then
-          ID_NUEVO=$(echo "$TEXTO" | awk '{print $2}')
-          NOMBRE_NUEVO=$(echo "$TEXTO" | awk '{print $3}')
-          DIAS=$(echo "$TEXTO" | awk '{print $4}')
-          RESULTADO=$(AGREGAR_USUARIO "$ID_NUEVO" "$NOMBRE_NUEVO" "$DIAS")
-          if [[ $? -eq 0 ]]; then
-            DIAS_MOSTRAR=${DIAS:-$DEFAULT_DIAS}
-            FECHA_VENC=$(date -d "@$RESULTADO" +"%d/%m/%Y")
-            echo "✅ AGREGADO: $ID_NUEVO → $NOMBRE_NUEVO | $DIAS_MOSTRAR días → Vence: $FECHA_VENC"
-            ENVIAR "$TU_ID" "✅ USUARIO AGREGADO%0A🆔 ID: $ID_NUEVO%0A👤 NOMBRE: $NOMBRE_NUEVO%0A⏰ DÍAS: $DIAS_MOSTRAR%0A📅 VENCE: $FECHA_VENC"
-            ENVIAR "$ID_NUEVO" "✅ TE DIERON PERMISO%0A%0ATocá el botón para generar claves%0A📅 Tu acceso vence: $FECHA_VENC"
-          else
-            ENVIAR "$TU_ID" "⚠️ ESE USUARIO YA EXISTE"
-          fi
-        else
-          ENVIAR "$ID_REMITE" "❌ SOLO EL ADMIN PUEDE AGREGAR USUARIOS"
-        fi
+# ✅ MENSAJE DE BIENVENIDA
+async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    nombre = update.effective_user.first_name or "USUARIO"
+    acceso, _, _ = tiene_acceso(uid)
+    id4 = id_corto(uid)
 
-      elif [[ "$DATO" == "generate" || "$TEXTO" == "/generar" || "$TEXTO" == "/generate" ]]; then
-        if TIENE_ACCESO_VIGENTE "$ID_REMITE"; then
-          RESPONDER_BOTON "$ID_BOTON"
-          echo "✅ CLAVE GENERADA PARA: $ID_REMITE ($NOMBRE)"
-          GENERAR_CLAVE "$ID_REMITE" "$NOMBRE"
-        else
-          echo "❌ ACCESO DENEGADO: $ID_REMITE"
-          ENVIAR "$ID_REMITE" "❌ SIN ACCESO%0A%0ATu ID es: \`$ID_REMITE\`%0AMandalo al administrador"
-        fi
+    if es_admin(uid):
+        await update.message.reply_text(
+            f"👋 ¡HOLA, {nombre}!\n\n✅ BIENVENIDO A PHENIX-M&M\nSOS EL ADMINISTRADOR\n\n📂 Sistema por hojitas:\n🆔 Tu ID corto: {id4}\n🔑 {id4}_activas.txt (4h)\n📦 {id4}_instaladas.txt (permanente)\n\nTocá los botones abajo:",
+            reply_markup=InlineKeyboardMarkup(teclado_admin)
+        )
+    elif acceso:
+        await update.message.reply_text(
+            f"👋 ¡HOLA, {nombre}!\n\n✅ BIENVENIDO A PHENIX-M&M\n\n🆔 Tu ID corto: {id4}\nTocá 🔑 GENERAR para tu clave:",
+            reply_markup=InlineKeyboardMarkup(teclado_usuario)
+        )
+    else:
+        await update.message.reply_text(
+            f"👋 ¡HOLA!\n\n❌ NO TENÉS ACCESO\n\nTu ID es: `{uid}`\nMandalo al administrador.",
+            parse_mode="Markdown"
+        )
 
-      elif [[ "$TEXTO" == "/start" ]]; then
-        if TIENE_ACCESO_VIGENTE "$ID_REMITE"; then
-          ENVIAR "$ID_REMITE" "✅ BIENVENIDO A SCRIPT PHENIX%0A%0ATocá el botón para generar la clave"
-        else
-          ENVIAR "$ID_REMITE" "❌ SIN ACCESO%0A%0ATu ID es: \`$ID_REMITE\`%0AMandalo al administrador"
-        fi
-      fi
-    fi
-  fi
-
-  sleep 2
-done
+if __name__ == "__main__":
+    print("🔰 BOT PHENIX INICIADO — SISTEMA POR HOJITAS POR USUARIO")
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("agregar", cmd_agregar))
+    app.add_handler(CommandHandler("borrar", cmd_borrar))
+    app.add_handler(CallbackQueryHandler(btn_generar, pattern="^GENERAR$"))
+    app.add_handler(CallbackQueryHandler(btn_agregar, pattern="^AGREGAR$"))
+    app.add_handler(CallbackQueryHandler(btn_borrar, pattern="^BORRAR$"))
+    print("✅ LISTO — hojitas por usuario: activas(4h) + instaladas(permanente)")
+    app.run_polling()
 EOF
 
-chmod +x bot.sh
-cd /opt/PhenixBot
-pkill -f PhenixBot 2>/dev/null
-screen -dmS PhenixBot bash bot.sh
+pkill -f "python3 /opt/PhenixBot/bot.py" 2>/dev/null
+screen -dmS PhenixBot python3 /opt/PhenixBot/bot.py
